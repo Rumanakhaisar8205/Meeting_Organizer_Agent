@@ -118,12 +118,27 @@ class SessionService:
         session.agent.approve_draft(notes=notes)
         return session.to_state_response()
 
+    def select_slot(self, session_id: str, choice: int) -> SessionStateResponse:
+        """Apply the user's Top-K slot selection, confirming the existing MeetingPlan."""
+        session = self._sessions.get(session_id)
+        if not session:
+            raise KeyError(f"Session '{session_id}' not found")
+        session.agent.select_time_slot(choice)
+        return session.to_state_response()
+
     def get_session_trace(self, session_id: str) -> SessionTraceResponse:
         """Retrieve the full iteration and tool trace logs for auditing."""
         session = self._sessions.get(session_id)
         if not session:
             raise KeyError(f"Session '{session_id}' not found")
         return session.to_trace_response()
+
+    def get_session_agent(self, session_id: str) -> MeetingOrganizerAgent:
+        """Retrieve the MeetingOrganizerAgent instance of an active session."""
+        session = self._sessions.get(session_id)
+        if not session:
+            raise KeyError(f"Session '{session_id}' not found")
+        return session.agent
 
     def clear_all(self) -> None:
         """Clear all stored sessions (useful for test isolation)."""

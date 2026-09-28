@@ -103,6 +103,15 @@ class ApprovePlanRequest(BaseModel):
     notes: Optional[str] = Field(default=None, description="Optional approval notes or constraints")
 
 
+class SelectSlotRequest(BaseModel):
+    choice: int = Field(
+        ...,
+        ge=1,
+        description="1-based index into the Top-K verified_candidate_slots to confirm",
+        examples=[1],
+    )
+
+
 class SessionStateResponse(BaseModel):
     session_id: str
     current_phase: AgentPhase
@@ -121,3 +130,79 @@ class SessionTraceResponse(BaseModel):
     current_phase: AgentPhase
     iteration_log: List[IterationLogEntry]
     tool_trace: List[ToolTraceEntry]
+
+
+# ---- Lab 3: Skill Creation Schemas --------------------------------------
+class PlanSkillInput(BaseModel):
+    topic: str
+    duration_minutes: int = 30
+    participants: List[str]
+    date_window: str = "2026-09-07"
+    meeting_type: str = "general"  # "committee", "standup", "sprint_planning", "project_sync", "general"
+    prior_action_items: List[ActionItemTemplate] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+
+class LockedPlanBlueprint(BaseModel):
+    blueprint_id: str
+    topic: str
+    meeting_type: str
+    participants: List[str]
+    duration_minutes: int
+    date_window: str
+    agenda_structure: List[AgendaItem]
+    minutes_template: MinutesOutline
+    constraints_locked: bool = True
+
+
+class FormatSkillInput(BaseModel):
+    plan: MeetingPlan
+    template_format: str = "markdown"  # "markdown", "text", "html"
+    include_minutes_template: bool = True
+
+
+class FormattedDocumentResponse(BaseModel):
+    format_type: str
+    content: str
+    sections: Dict[str, str] = Field(default_factory=dict)
+
+
+# ---- Lab 4: Memory & Retrieval Schemas -----------------------------------
+class KnowledgeItem(BaseModel):
+    item_id: str
+    title: str
+    content: str
+    tags: List[str]
+    source: str = "knowledge_store"
+
+
+class MeetingHistoryRecord(BaseModel):
+    meeting_id: str
+    title: str
+    date: str
+    participants: List[str]
+    summary: str
+    decisions: List[str] = Field(default_factory=list)
+    open_action_items: List[ActionItemTemplate] = Field(default_factory=list)
+    tags: List[str] = Field(default_factory=list)
+
+
+class MemoryQueryRequest(BaseModel):
+    tags: List[str] = Field(default_factory=list)
+    query_text: Optional[str] = None
+    top_k: int = 5
+
+
+class MemorySearchResponse(BaseModel):
+    knowledge_hits: List[KnowledgeItem] = Field(default_factory=list)
+    history_hits: List[MeetingHistoryRecord] = Field(default_factory=list)
+
+
+class HistoryRecordRequest(BaseModel):
+    title: str
+    date: str
+    participants: List[str]
+    summary: str
+    decisions: List[str] = Field(default_factory=list)
+    open_action_items: List[ActionItemTemplate] = Field(default_factory=list)
+    tags: List[str] = Field(default_factory=list)

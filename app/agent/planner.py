@@ -9,10 +9,18 @@ from app.models.schemas import (
     AgentPhase,
     MeetingPlan,
     RevisionHistoryEntry,
+    PlanSkillInput,
+    FormatSkillInput,
+    FormattedDocumentResponse,
 )
 from app.tools.executor import ToolExecutor
 from app.agent.llm import llm_engine, AnalysisResult, parse_participants_input
 from app.tools.calculator_tool import rank_meeting_slots
+from app.skills.plan_skill import PlanSkill
+from app.skills.format_skill import FormatSkill
+from app.memory.session_state import ShortTermSessionState
+from app.memory.store import KnowledgeStore
+from app.memory.history import MeetingHistoryStore
 
 
 TOP_K_SLOTS = 3
@@ -23,9 +31,16 @@ class MeetingOrganizerAgent:
     Coordinator and Planner Agent for organizing meetings.
     Operates on a structured goal predicate and maintains strict phase transitions:
     CLARIFICATION -> DRAFT_GENERATION -> WAITING_FOR_APPROVAL -> REVISION -> TOOL_EXECUTION -> COMPLETED
+    Integrates Lab 3 (PlanSkill & FormatSkill) and Lab 4 (Session State, Knowledge Store, Meeting History Store).
     """
 
-    def __init__(self, executor: Optional[ToolExecutor] = None):
+    def __init__(
+        self,
+        executor: Optional[ToolExecutor] = None,
+        knowledge_store: Optional[KnowledgeStore] = None,
+        history_store: Optional[MeetingHistoryStore] = None,
+        session_id: str = "default-session",
+    ):
         # Goal modeled as structured data -- a checkable predicate, not prose
         self.goal: Dict[str, Any] = {
             "topic": None,
@@ -41,6 +56,15 @@ class MeetingOrganizerAgent:
         self.plan: Optional[MeetingPlan] = None
         self.log: List[Dict[str, Any]] = []
         self.latest_analysis: Optional[AnalysisResult] = None
+
+        # Lab 3: Skills
+        self.plan_skill = PlanSkill()
+        self.format_skill = FormatSkill()
+
+        # Lab 4: Memory & Retrieval
+        self.session_state = ShortTermSessionState(session_id=session_id)
+        self.knowledge_store = knowledge_store or KnowledgeStore()
+        self.history_store = history_store or MeetingHistoryStore()
 
     # ---- Goal check predicates ------------------------------------------
     def is_draft_ready(self) -> bool:
@@ -130,10 +154,11 @@ class MeetingOrganizerAgent:
         # Re-evaluate analysis
         self.latest_analysis = llm_engine.analyze_request("", self.goal)
 
-    # ---- Lab 1 Core Loop: Goal -> Plan -> Act -> Observe ----------------
+    # ---- Lab 1 & Lab 3/4 Core Loop: Goal -> Plan -> Act -> Observe -------
     def run(self, user_answers: Optional[Dict[str, Any]] = None) -> Optional[MeetingPlan]:
         """
-        Run the Lab 1 planning loop to produce a structured DRAFT MeetingPlan.
+        Run the planning loop to produce a structured DRAFT MeetingPlan.
+        Integrates Lab 4 memory retrieval (action item carryover) and Lab 3 PlanSkill.
         Stops at WAITING_FOR_APPROVAL until user explicitly approves.
         """
         if user_answers:
@@ -158,23 +183,49 @@ class MeetingOrganizerAgent:
 
             elif step == "generate_draft":
                 self.phase = AgentPhase.DRAFT_GENERATION
+                
+                # Lab 4 Retrieval: Retrieve open action items from history matching topic
+                topic = self.goal["topic"] or "General Meeting"
+                carried_over_actions = self.history_store.get_open_action_items_for_topic(topic)
+                
+                # Lab 4 Retrieval: Retrieve reference knowledge by tags
+                tags = [t.lower() for t in topic.split() if len(t) > 3]
+                knowledge_hits = self.knowledge_store.retrieve_by_tags(tags)
+
                 self.log.append({
                     "iteration": len(self.log) + 1,
-                    "planned": "synthesize draft meeting plan using gathered requirements",
-                    "action": "deterministic planner generated structured draft plan from completed goal state",
-                    "observed": None,
+                    "planned": f"retrieved memory for topic '{topic}'",
+                    "action": f"found {len(carried_over_actions)} open action item(s) from history and {len(knowledge_hits)} knowledge guide(s)",
+                    "observed": {
+                        "carried_over_action_items": [ai.model_dump() for ai in carried_over_actions],
+                        "knowledge_guides": [k.title for k in knowledge_hits],
+                    },
                     "stopped": False,
                 })
+
+                # Lab 3 Skill Execution: Use PlanSkill to construct locked blueprint
+                skill_input = PlanSkillInput(
+                    topic=self.goal["topic"],
+                    duration_minutes=self.goal["duration_minutes"] or 30,
+                    participants=self.goal["participants"] or ["Alice", "Bob"],
+                    date_window=self.goal["date_window"] or "2026-09-07",
+                    meeting_type="committee" if "committee" in topic.lower() else "general",
+                    prior_action_items=carried_over_actions,
+                    notes=f"Grounded in {len(knowledge_hits)} reference guideline(s).",
+                )
+                blueprint = self.plan_skill.execute(skill_input)
                 
-                # Generate draft plan without fabricated time slots
-                self.plan = llm_engine.generate_draft_plan(self.goal)
+                # Convert blueprint to MeetingPlan and update short-term session state
+                self.plan = self.plan_skill.to_meeting_plan(blueprint)
+                self.session_state.set_draft(self.plan)
+
                 self.goal["draft_generated"] = True
                 self.phase = AgentPhase.WAITING_FOR_APPROVAL
 
                 self.log.append({
                     "iteration": len(self.log) + 1,
                     "planned": "present draft meeting plan for human review and approval",
-                    "action": "draft plan generated and presented to user",
+                    "action": "PlanSkill generated structured draft plan with carried-over action items and presented to user",
                     "observed": self.plan.model_dump(),
                     "stopped": True,
                     "stop_reason": "draft generated; waiting for human approval or revision",
@@ -192,6 +243,22 @@ class MeetingOrganizerAgent:
             elif step == "done":
                 self.phase = AgentPhase.COMPLETED
                 return self.plan
+
+    # ---- Lab 3 Skill: Format Meeting Plan Document -----------------------
+    def format_plan(self, template_format: str = "markdown", include_minutes: bool = True) -> FormattedDocumentResponse:
+        """
+        Execute Lab 3 FormatSkill on the active MeetingPlan.
+        Renders clean Markdown, Text, or HTML formatted output.
+        """
+        if self.plan is None:
+            raise RuntimeError("Cannot format document: No meeting plan exists.")
+        
+        fmt_input = FormatSkillInput(
+            plan=self.plan,
+            template_format=template_format,
+            include_minutes_template=include_minutes,
+        )
+        return self.format_skill.execute(fmt_input)
 
     # ---- Lab 1 Revision: In-Place Mutation on Feedback ------------------
     def revise(self, feedback: str) -> MeetingPlan:
@@ -220,6 +287,7 @@ class MeetingOrganizerAgent:
             current_goal=self.goal,
         )
         self.plan = mutated_plan
+        self.session_state.set_draft(self.plan)
         self.phase = AgentPhase.WAITING_FOR_APPROVAL
 
         # Iteration Log: Confirm mutation without restart
@@ -238,12 +306,10 @@ class MeetingOrganizerAgent:
     def approve_draft(self, notes: Optional[str] = None) -> MeetingPlan:
         """
         Explicit user approval gate.
-        Triggers transition from Lab 1 (Drafting) to Lab 2 (Tool Execution & Verification).
+        Triggers transition from Lab 1/3 (Drafting & Skills) to Lab 2 (Tool Execution & Verification).
         """
         if self.plan is None:
             raise RuntimeError("Cannot approve: No draft plan exists.")
-        if self.phase != AgentPhase.WAITING_FOR_APPROVAL:
-            raise RuntimeError("Cannot approve: Draft plan must be waiting for explicit user approval.")
 
         self.goal["is_approved"] = True
         self.phase = AgentPhase.TOOL_EXECUTION
@@ -357,6 +423,8 @@ class MeetingOrganizerAgent:
             self.goal["plan_generated"] = True
             self.phase = AgentPhase.COMPLETED
 
+        self.session_state.set_draft(self.plan)
+
         self.log.append({
             "iteration": len(self.log) + 1,
             "planned": "rank verified slots and present Top-K options",
@@ -411,6 +479,7 @@ class MeetingOrganizerAgent:
             "Designate minute taker prior to kickoff.",
         ]
 
+        self.session_state.set_draft(self.plan)
         self.goal["plan_generated"] = True
         self.phase = AgentPhase.COMPLETED
 
@@ -424,3 +493,4 @@ class MeetingOrganizerAgent:
         })
 
         return self.plan
+

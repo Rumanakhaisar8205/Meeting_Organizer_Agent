@@ -58,17 +58,29 @@ def test_start_session_full_request_and_approval_flow():
 
     session_id = data["session_id"]
 
-    # 2. Approve draft plan -> executes tools and finalizes
+    # 2. Approve draft plan -> executes Lab 2 tools and ranks verified Top-K slots
     approve_resp = client.post(
         f"/api/sessions/{session_id}/approve",
         json={"approved": True, "notes": "Looks great, proceed with scheduling"},
     )
     assert approve_resp.status_code == 200
     appr_data = approve_resp.json()
-    assert appr_data["current_phase"] == "COMPLETED"
-    assert appr_data["plan"]["status"] == "confirmed"
-    assert "PENDING_VERIFICATION" not in appr_data["plan"]["time_slot"]
+    assert appr_data["current_phase"] == "SLOT_SELECTION"
+    assert appr_data["plan"]["status"] == "awaiting_slot_selection"
     assert len(appr_data["plan"]["verified_candidate_slots"]) > 0
+
+    # 3. Select a verified slot -> finalizes the same plan (same meeting_id)
+    select_resp = client.post(
+        f"/api/sessions/{session_id}/select-slot",
+        json={"choice": 1},
+    )
+    assert select_resp.status_code == 200
+    sel_data = select_resp.json()
+    assert sel_data["current_phase"] == "COMPLETED"
+    assert sel_data["plan"]["status"] == "confirmed"
+    assert sel_data["plan"]["meeting_id"] == appr_data["plan"]["meeting_id"]
+    assert "PENDING_VERIFICATION" not in sel_data["plan"]["time_slot"]
+    assert sel_data["plan"]["time_slot"] in appr_data["plan"]["verified_candidate_slots"]
 
 
 def test_start_session_vague_request_and_clarification_flow():

@@ -122,7 +122,9 @@ def test_rubric_lab2_no_fabricated_information():
     # On 2026-09-07, Alice is busy 09:00-10:00 and 13:00-14:00; Bob is busy 11:00-12:30 and 15:00-16:00
     agent.extract_from_text("Schedule a 60m sync with Alice and Bob on 2026-09-07")
     agent.run()
-    plan = agent.approve_draft()
+    plan = agent.approve_draft()  # Ranks verified candidates; awaits explicit user slot selection
+    assert plan.verified_candidate_slots, "Expected at least one verified collision-free slot"
+    plan = agent.select_time_slot(1)  # Confirm the top-ranked verified slot
 
     proposed_slot = plan.time_slot  # Should be e.g. 10:00-11:00, 14:00-15:00, or 16:00-17:00
     start_time, end_time = proposed_slot.split("-")

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meeting Organizer Agent - Autonomous Scheduling Dashboard</title>
+    <!-- Google Fonts & Font Awesome Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="dark-theme">
+
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+        <div class="header-branding">
+            <div class="logo-icon"><i class="fa-solid fa-robot"></i></div>
+            <div>
+                <h1>Meeting Organizer Agent</h1>
+                <p class="subtitle">Autonomous Goal-Plan-Act-Observe Loop & Governed Tool Execution</p>
+            </div>
+        </div>
+        <div class="header-badges">
+            <span class="badge lab-badge"><i class="fa-solid fa-layer-group"></i> Labs 1 – 4 Active</span>
+            <span class="badge status-badge online" id="api-status-badge"><i class="fa-solid fa-circle-check"></i> System Ready</span>
+        </div>
+    </header>
+
+    <main class="dashboard-grid">
+
+        <!-- Column 1: Request & Clarification Panel -->
+        <section class="panel panel-request">
+            <div class="panel-header">
+                <h2><i class="fa-solid fa-pen-to-square"></i> Meeting Request</h2>
+                <span class="step-indicator">Step 1</span>
+            </div>
+
+            <!-- Quick Example Prompts -->
+            <div class="quick-prompts">
+                <label>Quick Presets:</label>
+                <div class="prompt-chips">
+                    <button type="button" class="chip" onclick="applyPreset('committee')">
+                        <i class="fa-solid fa-graduation-cap"></i> Committee Review
+                    </button>
+                    <button type="button" class="chip" onclick="applyPreset('sprint')">
+                        <i class="fa-solid fa-code"></i> Sprint Planning
+                    </button>
+                    <button type="button" class="chip" onclick="applyPreset('standup')">
+                        <i class="fa-solid fa-user-group"></i> Daily Standup
+                    </button>
+                    <button type="button" class="chip" onclick="applyPreset('vague')">
+                        <i class="fa-solid fa-circle-question"></i> Vague Request
+                    </button>
+                </div>
+            </div>
+
+            <!-- Request Form -->
+            <form id="start-form" onsubmit="handleStartSession(event)">
+                <div class="form-group">
+                    <label for="request-input">Natural Language Request:</label>
+                    <textarea id="request-input" rows="4" placeholder="Describe your meeting request (e.g., 'Schedule a 45m committee review with Faculty Advisor and HoD to discuss exam guidelines on 2026-09-07')..." required></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block" id="start-btn">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Process Request
+                </button>
+            </form>
+
+            <!-- Clarification Drawer (Shown if missing fields exist) -->
+            <div id="clarification-drawer" class="clarification-card hidden">
+                <div class="card-header warning">
+                    <h3><i class="fa-solid fa-clipboard-question"></i> Clarification Needed (Lab 1)</h3>
+                </div>
+                <p class="card-desc">The agent detected missing requirement fields. Please provide missing details:</p>
+                <form id="clarify-form" onsubmit="handleClarifySession(event)">
+                    <div id="clarification-fields"></div>
+                    <button type="submit" class="btn btn-warning btn-block">
+                        <i class="fa-solid fa-reply"></i> Submit Clarification Answers
+                    </button>
+                </form>
+            </div>
+
+            <!-- Memory Insights Widget (Lab 4) -->
+            <div id="memory-widget" class="memory-card hidden">
+                <div class="card-header info">
+                    <h3><i class="fa-solid fa-brain"></i> Memory Retrieval (Lab 4)</h3>
+                </div>
+                <div id="memory-insights-content"></div>
+            </div>
+        </section>
+
+        <!-- Column 2: Draft Meeting Plan & Skills Viewer -->
+        <section class="panel panel-plan">
+            <div class="panel-header">
+                <h2><i class="fa-solid fa-file-contract"></i> Meeting Blueprint & Plan</h2>
+                <span class="step-indicator">Step 2</span>
+            </div>
+
+            <!-- Empty State Placeholder -->
+            <div id="plan-empty-state" class="empty-state">
+                <i class="fa-solid fa-calendar-plus"></i>
+                <h3>No Active Meeting Plan</h3>
+                <p>Submit a request on the left to start the Goal-Plan-Act drafting loop.</p>
+            </div>
+
+            <!-- Active Meeting Plan Card -->
+            <div id="plan-card" class="plan-card hidden">
+                <div class="plan-card-header">
+                    <div>
+                        <span class="plan-id" id="plan-id-badge">ID: MTG-0000</span>
+                        <h3 id="plan-title">Meeting Title</h3>
+                    </div>
+                    <span class="status-pill" id="plan-status-pill">DRAFT</span>
+                </div>
+
+                <div class="plan-meta-grid">
+                    <div class="meta-item"><i class="fa-regular fa-calendar"></i> <span>Date:</span> <strong id="plan-date">2026-09-07</strong></div>
+                    <div class="meta-item"><i class="fa-regular fa-clock"></i> <span>Duration:</span> <strong id="plan-duration">30m</strong></div>
+                    <div class="meta-item"><i class="fa-solid fa-users"></i> <span>Attendees:</span> <strong id="plan-participants">Alice, Bob</strong></div>
+                    <div class="meta-item"><i class="fa-solid fa-location-dot"></i> <span>Time Slot:</span> <strong id="plan-timeslot" class="pending-slot">PENDING_VERIFICATION</strong></div>
+                </div>
+
+                <!-- Agenda Breakdown -->
+                <div class="section-block">
+                    <h4><i class="fa-solid fa-list-check"></i> Agenda Breakdown (Lab 3 PlanSkill)</h4>
+                    <div id="plan-agenda-list" class="agenda-timeline"></div>
+                </div>
+
+                <!-- Carried-Over Action Items (Lab 4) -->
+                <div class="section-block" id="action-items-block">
+                    <h4><i class="fa-solid fa-tasks"></i> Minutes Outline & Action Items (Lab 4 History)</h4>
+                    <div id="plan-action-items-list" class="action-items-grid"></div>
+                </div>
+
+                <!-- Lab 3 Skills Toolbar -->
+                <div class="skills-toolbar">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="showFormatModal('markdown')">
+                        <i class="fa-sharp fa-solid fa-file-code"></i> Markdown Document (Lab 3)
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="showFormatModal('html')">
+                        <i class="fa-brands fa-html5"></i> HTML Shell (Lab 3)
+                    </button>
+                </div>
+
+                <!-- In-Place Revision Form (Lab 1) -->
+                <div id="revision-box" class="revision-box">
+                    <h4><i class="fa-solid fa-rotate-left"></i> In-Place Revision (Lab 1)</h4>
+                    <form onsubmit="handleReviseSession(event)">
+                        <div class="revision-input-group">
+                            <input type="text" id="revision-input" placeholder="Request changes e.g., 'Make duration 45m and add security review'..." required>
+                            <button type="submit" class="btn btn-secondary"><i class="fa-solid fa-pen"></i> Revise Plan</button>
+                        </div>
+                    </form>
+                    <div id="revision-history-log"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Column 3: Approval Gate & Tool Execution -->
+        <section class="panel panel-execution">
+            <div class="panel-header">
+                <h2><i class="fa-solid fa-shield-halved"></i> Approval Gate & Tools</h2>
+                <span class="step-indicator">Step 3</span>
+            </div>
+
+            <!-- Approval Gate Banner -->
+            <div id="approval-gate-banner" class="gate-banner hidden">
+                <div class="gate-icon"><i class="fa-solid fa-lock"></i></div>
+                <div>
+                    <h3>Human Approval Gate (Lab 2)</h3>
+                    <p>Draft plan requires explicit human approval before executing tools.</p>
+                </div>
+                <button type="button" class="btn btn-success btn-lg" onclick="handleApproveSession()">
+                    <i class="fa-solid fa-user-check"></i> Explicitly Approve Plan
+                </button>
+            </div>
+
+            <!-- Top-K Candidate Slots Chooser -->
+            <div id="slot-selection-card" class="slot-card hidden">
+                <div class="card-header success">
+                    <h3><i class="fa-solid fa-calendar-days"></i> Ranked Available Time Slots (Lab 2)</h3>
+                </div>
+                <p class="card-desc">The tool calculator checked working hours and busy calendars. Select a verified slot:</p>
+                <div id="candidate-slots-list" class="slots-list"></div>
+            </div>
+
+            <!-- Final Confirmation Card -->
+            <div id="confirmed-card" class="confirmed-card hidden">
+                <div class="confirmed-icon"><i class="fa-solid fa-circle-check"></i></div>
+                <h3>Meeting Confirmed!</h3>
+                <p>Confirmed Slot: <strong id="confirmed-slot-display">10:00 - 10:30</strong></p>
+                <p class="confirmed-sub">Calendar invites prepared for all participants.</p>
+            </div>
+
+            <!-- Tool Execution Console Trace -->
+            <div class="console-box">
+                <div class="console-header">
+                    <span><i class="fa-solid fa-terminal"></i> Tool Execution Trace (Lab 2 Executor)</span>
+                    <span class="console-tag" id="tool-count-tag">0 calls</span>
+                </div>
+                <div id="tool-trace-logs" class="console-logs">
+                    <div class="log-line text-muted">Awaiting plan approval to trigger tool calls...</div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Lab 3 Document Export Modal -->
+    <div id="format-modal" class="modal-backdrop hidden">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3 id="modal-title"><i class="fa-solid fa-file-lines"></i> Formatted Document Output (Lab 3 FormatSkill)</h3>
+                <button type="button" class="close-btn" onclick="closeFormatModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="format-tabs">
+                    <button type="button" class="tab-btn active" id="tab-md" onclick="switchFormatTab('markdown')">Markdown</button>
+                    <button type="button" class="tab-btn" id="tab-html" onclick="switchFormatTab('html')">HTML Output</button>
+                    <button type="button" class="tab-btn" id="tab-text" onclick="switchFormatTab('text')">Plain Text</button>
+                </div>
+                <textarea id="formatted-content-area" readonly rows="16"></textarea>
+                <div id="formatted-html-preview" class="html-preview hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="/static/app.js"></script>
+</body>
+</html>

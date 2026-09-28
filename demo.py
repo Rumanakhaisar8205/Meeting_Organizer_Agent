@@ -43,7 +43,7 @@ def format_slot_display(slot: str) -> str:
 
 def print_draft_plan(draft):
     """Print a draft meeting plan in user-facing format."""
-    print(f"\nDraft Meeting Plan")
+    print(f"\nDraft Meeting Plan (Generated via Lab 3 PlanSkill & Lab 4 Memory)")
     print(f"Meeting ID: {draft.meeting_id}")
     print(f"Title: {draft.title}")
     print(f"Purpose: {draft.purpose}")
@@ -55,6 +55,10 @@ def print_draft_plan(draft):
     for i, item in enumerate(draft.agenda, 1):
         print(f"  {i}. {item.title} ({item.duration_minutes} min)")
         print(f"     {item.objective}")
+    if draft.minutes_outline and draft.minutes_outline.action_items:
+        print("\nCarried-Over Action Items (from Lab 4 Meeting History):")
+        for ai in draft.minutes_outline.action_items:
+            print(f"  * {ai.description} [Owner: {ai.owner}, Due: {ai.deadline}]")
 
 
 def print_final_plan(plan):
@@ -90,13 +94,13 @@ def collect_clarification_answer(field: str, question: str) -> str:
 
 
 def run_interactive_mode():
-    """Run the complete Lab 1 and Lab 2 flow."""
+    """Run the complete Lab 1, Lab 2, Lab 3, and Lab 4 flow."""
     agent = MeetingOrganizerAgent()
 
     print("Describe your meeting request.")
     print()
     print("Example:")
-    print('"Schedule a meeting with Alice and Bob to discuss project planning next Monday for 60 minutes"')
+    print('"Schedule a committee review with Faculty Advisor and HoD to discuss exam guidelines on 2026-09-07 for 45 minutes"')
     print()
     user_request = input("Your request:\n> ").strip()
     if not user_request:
@@ -107,7 +111,6 @@ def run_interactive_mode():
     agent.extract_from_text(user_request)
 
     # Clarification loop — ask only for genuinely missing information
-    field_order = ("topic", "participants", "duration_minutes", "date_window")
     while True:
         missing = agent.latest_analysis.missing_fields if agent.latest_analysis else []
         if not missing:
@@ -117,14 +120,12 @@ def run_interactive_mode():
         answers = {}
         for i, field in enumerate(missing):
             question = questions[i] if i < len(questions) else f"Please provide {field.replace('_', ' ')}:"
-            if field == "participants":
-                answers[field] = collect_clarification_answer(field, question)
-            else:
-                answers[field] = collect_clarification_answer(field, question)
+            answers[field] = collect_clarification_answer(field, question)
 
         agent.apply_clarification(answers)
 
-    # Generate draft
+    # Generate draft using Lab 3 PlanSkill & Lab 4 Memory
+    print("\nRetrieving memory & executing Lab 3 PlanSkill...")
     draft = agent.run()
     if not draft:
         print("Could not generate draft plan.")
@@ -137,7 +138,15 @@ def run_interactive_mode():
         print("\nChoose an action:")
         print("[a] Approve and continue to scheduling")
         print("[r] Request changes")
+        print("[f] View formatted document (Lab 3 FormatSkill)")
         choice = input("> ").strip().lower()
+
+        if choice == "f":
+            fmt_res = agent.format_plan(template_format="markdown")
+            print(f"\n--- FORMATTED MARKDOWN DOCUMENT (Lab 3 FormatSkill) ---\n")
+            print(fmt_res.content)
+            print("--------------------------------------------------------")
+            continue
 
         if choice == "r":
             feedback = input("What changes would you like?\n> ").strip()
@@ -151,7 +160,7 @@ def run_interactive_mode():
         if choice == "a":
             break
 
-        print("Invalid choice. Please enter [a] to approve or [r] to request changes.")
+        print("Invalid choice. Please enter [a] to approve, [r] to request changes, or [f] to view formatted document.")
 
     # Lab 2 — only after explicit approval
     print("\nScheduling: checking invitee preferences and calendar availability...")
@@ -175,6 +184,15 @@ def run_interactive_mode():
                 print(f"Invalid choice. Please enter a number between 1 and {k}.")
 
         print_final_plan(final_plan)
+
+        # Offer formatted output export
+        export = input("\nWould you like to view the final formatted meeting document? (y/n):\n> ").strip().lower()
+        if export.startswith("y"):
+            fmt_res = agent.format_plan(template_format="markdown")
+            print("\n========================================================")
+            print(fmt_res.content)
+            print("========================================================")
+
     elif plan.status == "unresolved_conflict":
         print("\nNo common available slots were found for all participants.")
         print(f"Meeting ID: {plan.meeting_id}")
@@ -183,6 +201,7 @@ def run_interactive_mode():
         print_final_plan(plan)
 
     print_debug_log(agent)
+
 
 
 if __name__ == "__main__":
